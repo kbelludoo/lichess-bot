@@ -17,17 +17,17 @@
     "total_symbols": 5974
   },
   "key": "lichess",
-  "last_eval": "-0.21 (depth 14)",
-  "last_move": "e8g8",
+  "last_eval": "-3.03 (depth 15)",
+  "last_move": "g7g6",
   "last_opp": "Darkchess77123",
   "losses": 3,
   "mode": "berserk",
-  "moves_played": 235,
+  "moves_played": 266,
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
   "ram_mb": "12.35 MB",
   "title": "BOT",
-  "uptime_sec": 1978,
+  "uptime_sec": 2099,
   "wins": 2
 }
