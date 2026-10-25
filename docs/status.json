@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "14.97 MB",
+  "ram_mb": "15.10 MB",
   "title": "BOT",
-  "uptime_sec": 3768,
+  "uptime_sec": 3888,
   "wins": 4
 }
