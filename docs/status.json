@@ -2,19 +2,19 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 8984,
+  "db_symbols": 9019,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 34,
   "idle_learner": {
     "current_source": "Lichess TV / Top GMs",
     "enabled": true,
-    "games_learned": 57,
+    "games_learned": 58,
     "is_idle": true,
-    "last_game_desc": "[Lichess TV (best)] fmshawnrl123 (2981) venceu MIGV (2799)",
-    "last_learned_at": "2026-10-25T21:45:20.292264736Z",
-    "moves_learned": 568,
+    "last_game_desc": "[Lichess TV (best)] Bigellow (3172) venceu Skebober1 (2948)",
+    "last_learned_at": "2026-10-25T21:53:46.657621089Z",
+    "moves_learned": 578,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 8984
+    "total_symbols": 9019
   },
   "key": "lichess",
   "last_eval": "+0.00 (depth 121)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "28.26 MB",
+  "ram_mb": "27.44 MB",
   "title": "BOT",
-  "uptime_sec": 18049,
+  "uptime_sec": 18176,
   "wins": 8
 }
