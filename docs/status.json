@@ -2,19 +2,19 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 10097,
+  "db_symbols": 10132,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 44,
   "idle_learner": {
     "current_source": "Lichess TV / Top GMs",
     "enabled": true,
-    "games_learned": 62,
+    "games_learned": 63,
     "is_idle": true,
-    "last_game_desc": "[Lichess TV (rapid)] komodo54 (2532) venceu JamesHardey (2481)",
-    "last_learned_at": "2026-10-25T23:18:10.18013772Z",
-    "moves_learned": 618,
+    "last_game_desc": "[Lichess TV (blitz)] songsololevel (2636) venceu Gettingold72 (2630)",
+    "last_learned_at": "2026-10-25T23:20:09.98901065Z",
+    "moves_learned": 628,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 10097
+    "total_symbols": 10132
   },
   "key": "lichess",
   "last_eval": "M-1 (depth 245)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "31.02 MB",
+  "ram_mb": "31.04 MB",
   "title": "BOT",
-  "uptime_sec": 23213,
+  "uptime_sec": 23330,
   "wins": 12
 }
