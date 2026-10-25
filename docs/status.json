@@ -2,19 +2,19 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 8844,
+  "db_symbols": 8879,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 33,
   "idle_learner": {
     "current_source": "Lichess TV / Top GMs",
     "enabled": true,
-    "games_learned": 53,
+    "games_learned": 54,
     "is_idle": true,
-    "last_game_desc": "[Lichess TV (rapid)] shotachkonia (2377) venceu Czarkoj (2368)",
-    "last_learned_at": "2026-10-25T21:29:20.469393909Z",
-    "moves_learned": 528,
+    "last_game_desc": "[Lichess TV (classical)] pirateofthefrisians (2478) venceu jmvanaclocha (2042)",
+    "last_learned_at": "2026-10-25T21:31:44.828997554Z",
+    "moves_learned": 538,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 8844
+    "total_symbols": 8879
   },
   "key": "lichess",
   "last_eval": "M-1 (depth 245)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "25.13 MB",
+  "ram_mb": "24.11 MB",
   "title": "BOT",
-  "uptime_sec": 16729,
+  "uptime_sec": 16848,
   "wins": 8
 }
