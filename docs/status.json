@@ -2,7 +2,7 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 4732,
+  "db_symbols": 4893,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 0,
   "idle_learner": {
@@ -10,11 +10,11 @@
     "enabled": true,
     "games_learned": 2,
     "is_idle": true,
-    "last_game_desc": "[Lichess TV (blitz)] FranklinAPalomo (2604) venceu Podrebo (2635)",
-    "last_learned_at": "2026-10-25T16:50:22.180635677Z",
+    "last_game_desc": "GlasnostPerestroika (3335) venceu alireza2003 (3173) [1-0]",
+    "last_learned_at": "2026-10-25T16:52:19.787669525Z",
     "moves_learned": 20,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 4732
+    "total_symbols": 4893
   },
   "key": "lichess",
   "last_eval": "",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "7.63 MB",
+  "ram_mb": "8.18 MB",
   "title": "BOT",
-  "uptime_sec": 40,
+  "uptime_sec": 50,
   "wins": 0
 }
