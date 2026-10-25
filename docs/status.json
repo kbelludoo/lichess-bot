@@ -2,19 +2,19 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 6190,
+  "db_symbols": 6225,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 9,
   "idle_learner": {
     "current_source": "Lichess TV / Top GMs",
     "enabled": true,
-    "games_learned": 24,
+    "games_learned": 25,
     "is_idle": true,
-    "last_game_desc": "mutdpro (2835) venceu blague (1949) [0-1]",
-    "last_learned_at": "2026-10-25T17:32:08.706425824Z",
-    "moves_learned": 240,
+    "last_game_desc": "[Chess.com] nihalsarin venceu DanielNaroditsky [0-1]",
+    "last_learned_at": "2026-10-25T17:32:57.017190408Z",
+    "moves_learned": 250,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 6190
+    "total_symbols": 6225
   },
   "key": "lichess",
   "last_eval": "+4.79 (depth 18)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "12.73 MB",
+  "ram_mb": "12.77 MB",
   "title": "BOT",
-  "uptime_sec": 2449,
+  "uptime_sec": 2567,
   "wins": 4
 }
