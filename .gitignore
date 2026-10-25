@@ -1,0 +1,16 @@
+# Binaries
+*.exe
+*-linux
+*.mbvmdb
+bin/
+
+# Keys and credentials
+*.key
+*.pem
+bot-config.json
+.env
+
+# Temp
+scratch/
+tmp/
+*.log

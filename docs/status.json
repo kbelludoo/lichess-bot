@@ -1,0 +1,18 @@
+{
+  "online": true,
+  "key": "lichess",
+  "name": "Lichess Bot (Berserk)",
+  "game": "Lichess.org • Go + Stockfish NNUE",
+  "bot_user": "kbelludoo",
+  "title": "BOT",
+  "mode": "berserk",
+  "active_games": 0,
+  "games_played": 0,
+  "wins": 0,
+  "losses": 0,
+  "moves_played": 0,
+  "db_symbols": 3954,
+  "ram_mb": "4.80 MB",
+  "port": 3016,
+  "dashboard": "https://lichess.org/@/kbelludoo"
+}

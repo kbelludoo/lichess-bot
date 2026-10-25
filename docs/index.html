@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>♟️ Lichess Bot 24/7 Live Stream — kbelludoo (BOT)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♟️</text></svg>">
+  <style>
+    :root {
+      --bg: #090a10;
+      --card-bg: #131622;
+      --card-border: #222738;
+      --accent: #10b981;
+      --accent-red: #ef4444;
+      --accent-purple: #a855f7;
+      --accent-cyan: #06b6d4;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    /* Header */
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand-icon { font-size: 38px; }
+    .brand h1 { font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+    .brand p { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+    
+    .status-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .badge-online { background: rgba(16, 185, 129, 0.15); color: var(--accent); border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-berserk { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-go { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.4); }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
+
+    /* Layout Grid */
+    .grid-main {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .grid-main { grid-template-columns: 1fr; }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Board Frame */
+    .frame-container {
+      position: relative;
+      background: #181614;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 2px solid var(--card-border);
+      aspect-ratio: 1 / 1.12;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .frame-container iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .frame-hint {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+    .btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .btn-challenge {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #000;
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    }
+    .btn-challenge:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); }
+    .btn-profile {
+      background: #1f2434;
+      color: #fff;
+      border: 1px solid var(--card-border);
+    }
+    .btn-profile:hover { background: #283046; }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .stat-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .stat-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }
+    .stat-value { font-size: 22px; font-weight: 800; color: #fff; margin-top: 4px; }
+    .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Features List */
+    .feat-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .feat-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: #d1d5db;
+    }
+    .feat-icon { font-size: 16px; margin-top: 1px; }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding-top: 32px;
+      margin-top: 32px;
+      border-top: 1px solid var(--card-border);
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">♟️</div>
+        <div>
+          <h1>kbelludoo (BOT)</h1>
+          <p>Motor de Xadrez Autônomo 100% Go • Stockfish 17.1 NNUE • MBVM-DB</p>
+        </div>
+      </div>
+      <div class="status-badges">
+        <div class="badge badge-online">
+          <span class="pulse-dot"></span>
+          <span>Online 24/7</span>
+        </div>
+        <div class="badge badge-berserk">
+          <span>💀 Modo Berserk</span>
+        </div>
+        <div class="badge badge-go">
+          <span>⚡ Go 1.27 (~5 MB RAM)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid-main">
+      <!-- Left: Live Chessboard -->
+      <div>
+        <div class="card" style="padding: 16px;">
+          <div class="card-title">
+            <span>📺 Transmissão ao Vivo (Tabuleiro do Lichess)</span>
+          </div>
+          <div class="frame-container">
+            <iframe id="tv-frame" src="https://lichess.org/tv/frame?user=kbelludoo&theme=brown&bg=dark" loading="lazy"></iframe>
+          </div>
+          <div class="frame-hint">
+            <span>🔴 Atualização automática lance a lance direto dos servidores do Lichess</span>
+            <span id="live-indicator">Aguardando lance...</span>
+          </div>
+          <div class="btn-row">
+            <a class="btn btn-challenge" href="https://lichess.org/?user=kbelludoo#friend" target="_blank" rel="noopener">
+              ⚔️ Desafiar Bot Agora
+            </a>
+            <a class="btn btn-profile" href="https://lichess.org/@/kbelludoo" target="_blank" rel="noopener">
+              👤 Perfil no Lichess ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Real-time Telemetry & MBVM-DB -->
+      <div>
+        <!-- Stats Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>📊 Métricas do Bot em Tempo Real</span>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-label">Partidas Ativas</div>
+              <div class="stat-value" id="val-active" style="color: var(--accent-cyan);">0</div>
+              <div class="stat-sub">Goroutine Concorrente</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Vitórias / Derrotas</div>
+              <div class="stat-value" id="val-winloss" style="color: var(--accent);">0 <span style="font-size: 14px; color: var(--accent-red);">/ 0</span></div>
+              <div class="stat-sub" id="val-games">0 partidas concluídas</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Símbolos MBVM-DB</div>
+              <div class="stat-value" id="val-symbols" style="color: #fbbf24;">3.954</div>
+              <div class="stat-sub">Nós no Grafo em Micro-Bytecode</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Consumo de Memória</div>
+              <div class="stat-value" id="val-ram" style="color: #38bdf8;">~4.8 MB</div>
+              <div class="stat-sub">Go Core + Subprocesso Stockfish</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Engine & Style Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>💀 Arquitetura do Motor & Modo Berserk</span>
+          </div>
+          <ul class="feat-list">
+            <li class="feat-item">
+              <span class="feat-icon">🔥</span>
+              <div>
+                <b>Estilo Mikhail Tal (Berserk Ultra):</b>
+                <div style="color: #9ca3af; font-size: 12px;">Prioriza agressão máxima, sacrifícios por iniciativa, ataques violentos à Ala do Rei e recusa troca passiva de Damas.</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <span class="feat-icon">🧠</span>
+              <div>
+                <b>Auto-Aprendizado Persistente (MBVM-DB):</b>
+                <div style="color: #9ca3af; font-size: 12px;">Toda partida vencida é gravada e indexada no grafo binário <code>chess.mbvmdb</code>, memorizando as linhas vitoriosas para consultas instantâneas (0ms).</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <span class="feat-icon">⚡</span>
+              <div>
+                <b>Hospedagem 24/7 em Go Nativo:</b>
+                <div style="color: #9ca3af; font-size: 12px;">Rodando como serviço Systemd na VPS Oracle Cloud Linux com reconexão automática e consumo de menos de 15 MB de RAM.</div>
+              </div>
+            </li>
+            <li class="feat-item">
+              <span class="feat-icon">🌐</span>
+              <div>
+                <b>Zero-RAM GitHub Pages:</b>
+                <div style="color: #9ca3af; font-size: 12px;">Este dashboard é servido estaticamente pelo GitHub Pages com telemetria sincronizada a cada 2 minutos pelo <code>vps-agent</code>.</div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Desenvolvido com ⚡ <b>Go 1.27</b> • Stockfish 17.1 NNUE • MBVM-DB • GitHub Pages</p>
+      <p style="margin-top: 4px; color: #6b7280;">Hospedado 24/7 na VPS Oracle Cloud • <a href="https://github.com/kbelludoo/bot-template-go" style="color: #9ca3af;">Frota bot-template-go</a></p>
+    </footer>
+  </div>
+
+  <script>
+    async function updateTelemetry() {
+      try {
+        const res = await fetch('status.json?t=' + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.active_games !== undefined) {
+          document.getElementById('val-active').textContent = data.active_games;
+          document.getElementById('live-indicator').textContent = data.active_games > 0 ? '⚔️ Partida em andamento!' : 'Aguardando desafio...';
+        }
+        if (data.wins !== undefined && data.losses !== undefined) {
+          document.getElementById('val-winloss').innerHTML = `${data.wins} <span style="font-size: 14px; color: var(--accent-red);">/ ${data.losses}</span>`;
+        }
+        if (data.games_played !== undefined) {
+          document.getElementById('val-games').textContent = `${data.games_played} partidas concluídas`;
+        }
+        if (data.db_symbols !== undefined) {
+          document.getElementById('val-symbols').textContent = data.db_symbols.toLocaleString();
+        }
+        if (data.ram_mb) {
+          document.getElementById('val-ram').textContent = data.ram_mb;
+        }
+      } catch (e) {
+        // Silencioso em caso de oscilação
+      }
+    }
+
+    // Atualiza telemetria a cada 5 segundos
+    setInterval(updateTelemetry, 5000);
+    updateTelemetry();
+  </script>
+</body>
+</html>
