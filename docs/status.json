@@ -2,7 +2,7 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 8265,
+  "db_symbols": 8300,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 30,
   "idle_learner": {
@@ -14,7 +14,7 @@
     "last_learned_at": "2026-10-25T20:25:08.789885207Z",
     "moves_learned": 428,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 8265
+    "total_symbols": 8300
   },
   "key": "lichess",
   "last_eval": "M1 (depth 245)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "23.40 MB",
+  "ram_mb": "40.69 MB",
   "title": "BOT",
-  "uptime_sec": 13130,
+  "uptime_sec": 13249,
   "wins": 8
 }
