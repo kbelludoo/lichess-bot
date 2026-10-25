@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kbelludoo/chess-mbvmdb/pkg/chess"
 	"github.com/kbelludoo/chess-mbvmdb/pkg/engine"
 	"github.com/kbelludoo/mbvm-db/pkg/mbvmdb"
 )
@@ -34,6 +36,7 @@ type Config struct {
 	AcceptRated  bool   `json:"accept_rated"`
 	AcceptCasual bool   `json:"accept_casual"`
 	AutoLearn    bool   `json:"auto_learn"`
+	AutoMatch    bool   `json:"auto_match"`
 }
 
 type BotApp struct {
@@ -136,6 +139,13 @@ func main() {
 		chessDB = mbvmdb.New()
 	}
 
+	// Ingestão de todas as lições mestres (Mates, Táticas, Finais de partida)
+	lessonsCount := chess.IngestAllLessons(chessDB)
+	log.Printf("📚 %d lições mestres ingeridas no MBVM-DB! Grafo expandido para %d símbolos", lessonsCount, chessDB.TotalSymbols())
+	if cfg.DBPath != "" {
+		_ = chessDB.SaveToFile(cfg.DBPath)
+	}
+
 	bot := &BotApp{
 		cfg:        cfg,
 		client:     &http.Client{Timeout: 0},
@@ -165,6 +175,9 @@ func main() {
 
 	// Inicia servidor HTTP de telemetria e HUD
 	go bot.startHTTPServer()
+
+	// Inicia motor de busca e desafios 24/7 contra outros bots
+	go bot.autoMatchmakerLoop()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -199,6 +212,7 @@ func loadConfig(configFile, flagToken, flagEngine, flagDB string, flagPort, move
 		AcceptRated:  true,
 		AcceptCasual: true,
 		AutoLearn:    true,
+		AutoMatch:    true,
 	}
 
 	if data, err := os.ReadFile(configFile); err == nil {
@@ -885,5 +899,175 @@ func (b *BotApp) sendChatMessage(gameID, room, text string) {
 	resp, err := b.client.Do(req)
 	if err == nil {
 		defer resp.Body.Close()
+	}
+}
+
+// challengeBot envia um desafio direto a outro bot no Lichess.
+func (b *BotApp) challengeBot(username string, limitSec, incSec int, rated bool) error {
+	endpoint := fmt.Sprintf("https://lichess.org/api/challenge/%s", url.PathEscape(username))
+	form := url.Values{}
+	form.Set("rated", strconv.FormatBool(rated))
+	form.Set("clock.limit", strconv.Itoa(limitSec))
+	form.Set("clock.increment", strconv.Itoa(incSec))
+	form.Set("color", "random")
+	form.Set("variant", "standard")
+
+	req, err := http.NewRequest("POST", endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.cfg.Token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// fetchOnlineBots descobre bots ativos no Lichess via NDJSON stream.
+func (b *BotApp) fetchOnlineBots(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	endpoint := fmt.Sprintf("https://lichess.org/api/bot/online?nb=%d", limit)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.cfg.Token)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	var bots []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var botInfo struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+		}
+		if err := json.Unmarshal([]byte(line), &botInfo); err == nil && botInfo.Username != "" {
+			bots = append(bots, botInfo.Username)
+		}
+	}
+	return bots, scanner.Err()
+}
+
+// autoMatchmakerLoop executa o ciclo 24/7 de desafios contínuos contra outros bots.
+func (b *BotApp) autoMatchmakerLoop() {
+	if !b.cfg.AutoMatch {
+		log.Println("ℹ️ Auto-Matchmaker 24/7 desativado nas configurações.")
+		return
+	}
+
+	log.Println("🤖 [MATCHMAKER 24/7] Iniciando motor autônomo de busca e desafios contra bots...")
+	time.Sleep(8 * time.Second)
+
+	// Bots prioritários e conhecidos por aceitar partidas blitz
+	priorityBots := []string{"maia1", "maia5", "maia9"}
+	priorityIndex := 0
+
+	for {
+		b.activeLock.Lock()
+		activeCount := len(b.activeGame)
+		b.activeLock.Unlock()
+
+		if activeCount > 0 {
+			// Já em partida ativa, aguarda
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		targetBot := ""
+		// 1. Tenta pegar bots online dinamicamente
+		onlineBots, err := b.fetchOnlineBots(20)
+		if err == nil && len(onlineBots) > 0 {
+			for _, botName := range onlineBots {
+				if !strings.EqualFold(botName, b.botID) && !strings.EqualFold(botName, b.botName) {
+					// Dá preferência a bots do pool
+					for _, pb := range priorityBots {
+						if strings.EqualFold(botName, pb) {
+							targetBot = botName
+							break
+						}
+					}
+					if targetBot == "" && (strings.Contains(strings.ToLower(botName), "maia") || strings.Contains(strings.ToLower(botName), "bot")) {
+						targetBot = botName
+					}
+				}
+				if targetBot != "" {
+					break
+				}
+			}
+		}
+
+		// Fallback para lista prioritária
+		if targetBot == "" {
+			targetBot = priorityBots[priorityIndex%len(priorityBots)]
+			priorityIndex++
+		}
+
+		log.Printf("🎯 [MATCHMAKER 24/7] Enviando desafio Blitz (3m+2s) para bot: %s...", targetBot)
+		err = b.challengeBot(targetBot, 180, 2, false)
+		if err != nil {
+			log.Printf("⚠️ [MATCHMAKER 24/7] Erro ao desafiar %s: %v. Próximo em 8s...", targetBot, err)
+			priorityIndex++
+			time.Sleep(8 * time.Second)
+			continue
+		}
+
+		log.Printf("⏳ [MATCHMAKER 24/7] Desafio enviado para %s! Aguardando aceite...", targetBot)
+
+		// Aguarda até 30s verificando se a partida iniciou
+		started := false
+		for i := 0; i < 6; i++ {
+			time.Sleep(5 * time.Second)
+			b.activeLock.Lock()
+			if len(b.activeGame) > 0 {
+				started = true
+			}
+			b.activeLock.Unlock()
+			if started {
+				break
+			}
+		}
+
+		if !started {
+			log.Printf("ℹ️ [MATCHMAKER 24/7] %s não aceitou o desafio a tempo. Alternando bot...", targetBot)
+			priorityIndex++
+		} else {
+			log.Printf("⚔️ [MATCHMAKER 24/7] Partida contra %s iniciada com sucesso!", targetBot)
+			// Monitora até a partida terminar
+			for {
+				time.Sleep(4 * time.Second)
+				b.activeLock.Lock()
+				inGame := len(b.activeGame) > 0
+				b.activeLock.Unlock()
+				if !inGame {
+					break
+				}
+			}
+			log.Println("🧘 [MATCHMAKER 24/7] Partida encerrada! Cooldown de 8s antes do próximo desafio...")
+			time.Sleep(8 * time.Second)
+		}
 	}
 }

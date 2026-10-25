@@ -1,0 +1,17 @@
+[Unit]
+Description=Lichess Bot Go 100% (Berserk Mode + MBVM-DB Auto-Learn)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/chess-bot
+Environment="GOMEMLIMIT=16MiB"
+Environment="GOGC=50"
+ExecStart=/home/ubuntu/chess-bot/lichess-bot-linux -config /home/ubuntu/chess-bot/bot-config.json
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

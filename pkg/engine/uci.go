@@ -76,10 +76,10 @@ func (e *UCIEngine) init() error {
 		}
 	}
 
-	// Optimize for rapid responsiveness and multi-line tactical analysis
-	_ = e.send("setoption name Threads value 2")
-	_ = e.send("setoption name Hash value 64")
-	_ = e.send("setoption name MultiPV value 5")
+	// Optimize for minimum memory footprint (~16MB total VPS RAM target) and fast Berserk blitz response
+	_ = e.send("setoption name Threads value 1")
+	_ = e.send("setoption name Hash value 4")
+	_ = e.send("setoption name MultiPV value 3")
 	_ = e.send("isready")
 
 	for e.stdout.Scan() {
