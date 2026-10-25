@@ -230,8 +230,8 @@
             <iframe id="tv-frame" src="https://lichess.org/tv/frame?user=kbelludoo&theme=brown&bg=dark" loading="lazy"></iframe>
           </div>
           <div class="frame-hint">
-            <span>🔴 Atualização automática lance a lance direto dos servidores do Lichess</span>
-            <span id="live-indicator">Aguardando lance...</span>
+            <span id="live-desc">🔴 Atualização lance a lance do bot (quando ocioso, o Lichess exibe a TV global)</span>
+            <span id="live-indicator" style="font-weight: 700; color: var(--accent-cyan);">Aguardando lance...</span>
           </div>
           <div class="btn-row">
             <a class="btn btn-challenge" href="https://lichess.org/?user=kbelludoo#friend" target="_blank" rel="noopener">
@@ -322,6 +322,8 @@
   </div>
 
   <script>
+    let lastActive = -1;
+
     async function updateTelemetry() {
       try {
         const res = await fetch('status.json?t=' + Date.now());
@@ -330,7 +332,23 @@
         
         if (data.active_games !== undefined) {
           document.getElementById('val-active').textContent = data.active_games;
-          document.getElementById('live-indicator').textContent = data.active_games > 0 ? '⚔️ Partida em andamento!' : 'Aguardando desafio...';
+          const liveInd = document.getElementById('live-indicator');
+          const liveDesc = document.getElementById('live-desc');
+          
+          if (data.active_games > 0) {
+            liveInd.textContent = '⚔️ Partida AO VIVO!';
+            liveInd.style.color = '#10b981';
+            liveDesc.textContent = '🔴 Bot kbelludoo em combate ao vivo no Lichess';
+            if (lastActive === 0) {
+              // Recarrega o frame ao iniciar nova partida
+              document.getElementById('tv-frame').src = 'https://lichess.org/tv/frame?user=kbelludoo&theme=brown&bg=dark&t=' + Date.now();
+            }
+          } else {
+            liveInd.textContent = '⏸️ Buscando bot...';
+            liveInd.style.color = '#38bdf8';
+            liveDesc.textContent = 'ℹ️ Intervalo entre partidas (Lichess TV exibindo mesa global)';
+          }
+          lastActive = data.active_games;
         }
         if (data.wins !== undefined && data.losses !== undefined) {
           document.getElementById('val-winloss').innerHTML = `${data.wins} <span style="font-size: 14px; color: var(--accent-red);">/ ${data.losses}</span>`;
