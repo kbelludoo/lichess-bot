@@ -1,10 +1,10 @@
 {
-  "active_games": 2,
+  "active_games": 1,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 9562,
+  "db_symbols": 9759,
   "game": "Lichess.org • Go + Stockfish NNUE",
-  "games_played": 41,
+  "games_played": 42,
   "idle_learner": {
     "current_source": "Nenhum",
     "enabled": true,
@@ -14,20 +14,20 @@
     "last_learned_at": "2026-10-25T21:53:46.657621089Z",
     "moves_learned": 578,
     "status": "⏸️ Em Partida Ativa — Aprendizado Ocioso Pausado (Zero Lag)",
-    "total_symbols": 9562
+    "total_symbols": 9759
   },
   "key": "lichess",
-  "last_eval": "+5.96 (depth 16)",
-  "last_move": "d5c4",
-  "last_opp": "Darkchess77123",
+  "last_eval": "+5.22 (depth 18)",
+  "last_move": "f7e8",
+  "last_opp": "TorrinoBOT",
   "losses": 27,
   "mode": "berserk",
-  "moves_played": 2167,
+  "moves_played": 2197,
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "28.50 MB",
+  "ram_mb": "29.82 MB",
   "title": "BOT",
-  "uptime_sec": 21773,
-  "wins": 10
+  "uptime_sec": 21895,
+  "wins": 11
 }
