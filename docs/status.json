@@ -1,5 +1,5 @@
 {
-  "active_games": 1,
+  "active_games": 2,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
   "db_symbols": 8573,
@@ -17,17 +17,17 @@
     "total_symbols": 8573
   },
   "key": "lichess",
-  "last_eval": "-4.67 (depth 16) [💀 Modo Berserk: Caos \u0026 Ataque Total]",
-  "last_move": "f3h4",
+  "last_eval": "-0.85 (depth 12)",
+  "last_move": "f1c4",
   "last_opp": "ChessEngine_Gambit",
   "losses": 20,
   "mode": "berserk",
-  "moves_played": 1516,
+  "moves_played": 1538,
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "23.60 MB",
+  "ram_mb": "23.61 MB",
   "title": "BOT",
-  "uptime_sec": 15288,
+  "uptime_sec": 15408,
   "wins": 8
 }
