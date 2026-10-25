@@ -17,17 +17,17 @@
     "total_symbols": 7721
   },
   "key": "lichess",
-  "last_eval": "🧠 MBVM-DB Livro Mestre (0ms)",
-  "last_move": "b1c3",
+  "last_eval": "+3.76 (depth 16)",
+  "last_move": "b8b4",
   "last_opp": "TalosBot",
   "losses": 17,
   "mode": "berserk",
-  "moves_played": 1235,
+  "moves_played": 1261,
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "20.04 MB",
+  "ram_mb": "20.05 MB",
   "title": "BOT",
-  "uptime_sec": 9895,
+  "uptime_sec": 10015,
   "wins": 6
 }
