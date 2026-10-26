@@ -1458,7 +1458,11 @@ func (b *BotApp) autoMatchmakerLoop() {
 		chID, err := b.challengeBot(target.Username, 180, 2, rated)
 		if err != nil {
 			errStr := strings.ToLower(err.Error())
-			if strings.Contains(errStr, "100 games") || strings.Contains(errStr, "ratelimit") || strings.Contains(errStr, "rate limit") {
+			if strings.Contains(errStr, "429") || strings.Contains(errStr, "too many requests") {
+				log.Printf("⚠️ [MATCHMAKER] Rate limit 429 do Lichess! Pausando por 45s...")
+				time.Sleep(45 * time.Second)
+				continue
+			} else if strings.Contains(errStr, "100 games") || strings.Contains(errStr, "ratelimit") || strings.Contains(errStr, "rate limit") {
 				log.Printf("⚠️ [MATCHMAKER] %s atingiu o limite de partidas do Lichess. Cooldown de 1h.", target.Username)
 				cooldowns[target.Username] = time.Now().Add(1 * time.Hour)
 			} else if strings.Contains(errStr, "rated") && rated {
