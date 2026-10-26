@@ -17,17 +17,17 @@
     "total_symbols": 10977
   },
   "key": "lichess",
-  "last_eval": "-3.20 (depth 14) [💀 Modo Berserk: Caos \u0026 Ataque Total]",
-  "last_move": "d5c4",
+  "last_eval": "-4.73 (depth 17)",
+  "last_move": "f5e4",
   "last_opp": "endspiel-pi",
   "losses": 33,
   "mode": "berserk",
-  "moves_played": 2635,
+  "moves_played": 2645,
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
   "ram_mb": "36.56 MB",
   "title": "BOT",
-  "uptime_sec": 28851,
+  "uptime_sec": 28971,
   "wins": 12
 }
