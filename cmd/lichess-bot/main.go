@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,17 +28,19 @@ import (
 )
 
 type Config struct {
-	Token        string `json:"token"`
-	EnginePath   string `json:"engine_path"`
-	DBPath       string `json:"db_path"`
-	Port         int    `json:"port"`
-	MoveTimeMs   int    `json:"move_time_ms"`
-	SkillLevel   int    `json:"skill_level"`
-	Mode         string `json:"mode"`
-	AcceptRated  bool   `json:"accept_rated"`
-	AcceptCasual bool   `json:"accept_casual"`
-	AutoLearn    bool   `json:"auto_learn"`
-	AutoMatch    bool   `json:"auto_match"`
+	Token         string `json:"token"`
+	EnginePath    string `json:"engine_path"`
+	DBPath        string `json:"db_path"`
+	Port          int    `json:"port"`
+	MoveTimeMs    int    `json:"move_time_ms"`
+	SkillLevel    int    `json:"skill_level"`
+	Mode          string `json:"mode"`
+	AcceptRated   bool   `json:"accept_rated"`
+	AcceptCasual  bool   `json:"accept_casual"`
+	AutoLearn     bool   `json:"auto_learn"`
+	AutoMatch     bool   `json:"auto_match"`
+	IdleLearn     bool   `json:"idle_learn"`
+	IdleMinRating int    `json:"idle_min_rating"`
 }
 
 type BotApp struct {
@@ -45,10 +49,14 @@ type BotApp struct {
 	engine      *engine.UCIEngine
 	db          *mbvmdb.DB
 	dbMu        sync.Mutex
+	idleLearner *chess.IdleLearner
 	botID       string
 	botName     string
 	activeLock  sync.Mutex
 	activeGame  map[string]bool
+	gameModes   map[string]string
+	gameSkills  map[string]int
+	modeLock    sync.RWMutex
 	startTime   time.Time
 	statsLock   sync.RWMutex
 	gamesPlayed int
@@ -152,6 +160,8 @@ func main() {
 		engine:     eng,
 		db:         chessDB,
 		activeGame: make(map[string]bool),
+		gameModes:  make(map[string]string),
+		gameSkills: make(map[string]int),
 		startTime:  time.Now(),
 	}
 
@@ -179,12 +189,37 @@ func main() {
 	// Inicia motor de busca e desafios 24/7 contra outros bots
 	go bot.autoMatchmakerLoop()
 
+	// Inicia motor de aprendizado contínuo em ociosidade (Lichess TV & Top GMs)
+	idleCfg := chess.IdleLearnerConfig{
+		MinRating:    cfg.IdleMinRating,
+		PollInterval: 12 * time.Second,
+		DBPath:       cfg.DBPath,
+		Enabled:      cfg.AutoLearn || cfg.IdleLearn,
+	}
+	bot.idleLearner = chess.NewIdleLearner(
+		idleCfg,
+		bot.db,
+		&bot.dbMu,
+		func() bool {
+			bot.activeLock.Lock()
+			defer bot.activeLock.Unlock()
+			return len(bot.activeGame) == 0
+		},
+		func() {
+			bot.saveDB()
+		},
+	)
+	bot.idleLearner.Start(context.Background())
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-sigChan
 		log.Println("\n🛑 Encerrando bot com segurança...")
+		if bot.idleLearner != nil {
+			bot.idleLearner.Stop()
+		}
 		_ = eng.Close()
 		bot.saveDB()
 		os.Exit(0)
@@ -209,10 +244,12 @@ func loadConfig(configFile, flagToken, flagEngine, flagDB string, flagPort, move
 		MoveTimeMs:   moveTime,
 		SkillLevel:   skill,
 		Mode:         mode,
-		AcceptRated:  true,
-		AcceptCasual: true,
-		AutoLearn:    true,
-		AutoMatch:    true,
+		AcceptRated:   true,
+		AcceptCasual:  true,
+		AutoLearn:     true,
+		AutoMatch:     true,
+		IdleLearn:     true,
+		IdleMinRating: 2300,
 	}
 
 	if data, err := os.ReadFile(configFile); err == nil {
@@ -290,6 +327,11 @@ func (b *BotApp) handleStatusJSON(w http.ResponseWriter, r *http.Request) {
 		dbCount = b.db.TotalSymbols()
 	}
 
+	var idleStats chess.IdleLearnerStats
+	if b.idleLearner != nil {
+		idleStats = b.idleLearner.GetStats()
+	}
+
 	status := map[string]any{
 		"online":       true,
 		"key":          "lichess",
@@ -308,6 +350,7 @@ func (b *BotApp) handleStatusJSON(w http.ResponseWriter, r *http.Request) {
 		"last_eval":    lastEval,
 		"last_opp":     lastOpp,
 		"db_symbols":   dbCount,
+		"idle_learner": idleStats,
 		"uptime_sec":   int(time.Since(b.startTime).Seconds()),
 		"ram_mb":       fmt.Sprintf("%.2f MB", ramMB),
 		"dashboard":    fmt.Sprintf("https://lichess.org/@/%s", b.botName),
@@ -346,6 +389,16 @@ func (b *BotApp) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dbCount = b.db.TotalSymbols()
 	}
 
+	var idleStats chess.IdleLearnerStats
+	if b.idleLearner != nil {
+		idleStats = b.idleLearner.GetStats()
+	}
+
+	idleBadgeColor := "#10b981"
+	if !idleStats.IsIdle {
+		idleBadgeColor = "#f59e0b"
+	}
+
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -363,6 +416,9 @@ func (b *BotApp) handleDashboard(w http.ResponseWriter, r *http.Request) {
     .card { background: #161822; border: 1px solid #242938; border-radius: 10px; padding: 18px; }
     .lbl { color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
     .val { font-size: 26px; font-weight: bold; color: #f3f4f6; margin-top: 6px; }
+    .banner { background: #1a1e2e; border: 1px solid #3b82f6; border-radius: 10px; padding: 16px; margin-bottom: 24px; }
+    .banner-title { font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .banner-desc { font-size: 13px; color: #d1d5db; }
     .link-btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-weight: 500; margin-top: 8px; }
     .link-btn:hover { background: #1d4ed8; }
   </style>
@@ -377,6 +433,18 @@ func (b *BotApp) handleDashboard(w http.ResponseWriter, r *http.Request) {
       </div>
       <div>
         <a class="link-btn" href="https://lichess.org/@/%s" target="_blank">Ver Perfil Lichess ↗</a>
+      </div>
+    </div>
+
+    <!-- Banner de Aprendizado Contínuo em Ociosidade -->
+    <div class="banner">
+      <div class="banner-title">
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%%; background:%s;"></span>
+        <span>🧠 Modo Aprendizado em Ociosidade (Lichess TV & Melhores GMs)</span>
+      </div>
+      <div class="banner-desc">
+        <strong>Status:</strong> %s &nbsp;|&nbsp; 
+        <strong>Última Partida:</strong> %s
       </div>
     </div>
 
@@ -398,6 +466,14 @@ func (b *BotApp) handleDashboard(w http.ResponseWriter, r *http.Request) {
         <div class="val" style="color: #fbbf24;">%d</div>
       </div>
       <div class="card">
+        <div class="lbl">GMs Analisados (Ocioso)</div>
+        <div class="val" style="color: #a78bfa;">%d</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Lances Mestres Memorizados</div>
+        <div class="val" style="color: #38bdf8;">%d</div>
+      </div>
+      <div class="card">
         <div class="lbl">Total de Lances Calculados</div>
         <div class="val">%d</div>
       </div>
@@ -416,7 +492,7 @@ func (b *BotApp) handleDashboard(w http.ResponseWriter, r *http.Request) {
     </div>
   </div>
 </body>
-</html>`, b.botName, b.botName, activeCount, games, wins, losses, dbCount, moves, lastMove, lastEval, lastOpp, ramMB)
+</html>`, b.botName, b.botName, idleBadgeColor, idleStats.Status, idleStats.LastGameDesc, activeCount, games, wins, losses, dbCount, idleStats.GamesLearned, idleStats.MovesLearned, moves, lastMove, lastEval, lastOpp, ramMB)
 
 	_, _ = w.Write([]byte(html))
 }
@@ -586,12 +662,25 @@ func (b *BotApp) handleChallenge(ch map[string]any) {
 
 	challenger, _ := ch["challenger"].(map[string]any)
 	challengerName, _ := challenger["name"].(string)
+	challengerID, _ := challenger["id"].(string)
+	challengerTitle, _ := challenger["title"].(string)
+
+	// Não aceita o próprio desafio de saída
+	if strings.EqualFold(challengerName, b.botName) || strings.EqualFold(challengerID, b.botID) {
+		return
+	}
+
+	isHuman := (challengerTitle != "BOT")
 	rated, _ := ch["rated"].(bool)
 
 	variant, _ := ch["variant"].(map[string]any)
 	variantKey, _ := variant["key"].(string)
 
-	log.Printf("📩 Desafio de [%s] (ID: %s, Variante: %s, Rating: %v)", challengerName, chID, variantKey, rated)
+	if isHuman {
+		log.Printf("🌟 [JOGADOR HUMANO DETECTADO] Desafio recebido de %s! Aceitando com PRIORIDADE MÁXIMA!", challengerName)
+	} else {
+		log.Printf("📩 Desafio de [%s] (ID: %s, Variante: %s, Rating: %v)", challengerName, chID, variantKey, rated)
+	}
 
 	if variantKey != "standard" && variantKey != "" {
 		log.Printf("⛔ Recusando desafio %s (variante: %s)", chID, variantKey)
@@ -630,6 +719,11 @@ func (b *BotApp) playGame(gameID string) {
 		b.activeLock.Lock()
 		delete(b.activeGame, gameID)
 		b.activeLock.Unlock()
+
+		b.modeLock.Lock()
+		delete(b.gameModes, gameID)
+		delete(b.gameSkills, gameID)
+		b.modeLock.Unlock()
 	}()
 
 	url := fmt.Sprintf("https://lichess.org/api/bot/game/stream/%s", gameID)
@@ -648,8 +742,9 @@ func (b *BotApp) playGame(gameID string) {
 	defer resp.Body.Close()
 
 	var (
-		isWhite       bool
-		initialFen    = "startpos"
+		isWhite         bool
+		isHumanOpponent bool
+		initialFen      = "startpos"
 		lastMoveCount = -1
 		whitePlayer   = "Brancas"
 		blackPlayer   = "Pretas"
@@ -690,15 +785,41 @@ func (b *BotApp) playGame(gameID string) {
 			}
 
 			isWhite = strings.EqualFold(wID, b.botID)
-			log.Printf("🎮 Partida [%s] | %s vs %s (Bot: %s, Modo: 💀 %s)",
-				gameID, whitePlayer, blackPlayer,
-				map[bool]string{true: "Brancas ⚪", false: "Pretas ⚫"}[isWhite],
-				strings.ToUpper(b.cfg.Mode))
 
-			b.sendChatMessage(gameID, "player", "Good luck! 100% Go Bot in BERSERK mode + MBVM-DB.")
+			oppTitle := ""
+			oppUser := blackPlayer
+			if isWhite {
+				if t, ok := gf.Black["title"].(string); ok {
+					oppTitle = t
+				}
+			} else {
+				oppUser = whitePlayer
+				if t, ok := gf.White["title"].(string); ok {
+					oppTitle = t
+				}
+			}
+			isHumanOpponent = (oppTitle != "BOT")
+
+			if isHumanOpponent {
+				log.Printf("🌟 Partida contra JOGADOR HUMANO [%s] | %s vs %s (Bot: %s)",
+					gameID, whitePlayer, blackPlayer,
+					map[bool]string{true: "Brancas ⚪", false: "Pretas ⚫"}[isWhite])
+				welcomeMsg := fmt.Sprintf("Olá %s! Sou um bot especialista em ATAQUE BERSERK 💀, mas você pode escolher o estilo para treinar!\nDigite no chat:\n• !tal (Mikhail Tal - sacrifícios e tática)\n• !solido ou !karpov (Posicional e profilático)\n• !fischer (Ataque na Ala do Rei)\n• !berserk (Ataque total kamikaze - padrão)\n• !facil / !medio / !dificil (Dificuldade)", oppUser)
+				b.sendChatMessage(gameID, "player", welcomeMsg)
+			} else {
+				log.Printf("🎮 Partida [%s] | %s vs %s (Bot: %s, Modo: 💀 %s)",
+					gameID, whitePlayer, blackPlayer,
+					map[bool]string{true: "Brancas ⚪", false: "Pretas ⚫"}[isWhite],
+					strings.ToUpper(b.cfg.Mode))
+				b.sendChatMessage(gameID, "player", "Good luck! 100% Go Bot in BERSERK mode + MBVM-DB.")
+			}
 
 			latestMoves = gf.State.Moves
-			b.processTurn(gameID, isWhite, initialFen, latestMoves, &lastMoveCount)
+			myClock := gf.State.WTime
+			if !isWhite {
+				myClock = gf.State.BTime
+			}
+			b.processTurn(gameID, isWhite, initialFen, latestMoves, &lastMoveCount, myClock)
 
 		case "gameState":
 			var state GameState
@@ -714,9 +835,10 @@ func (b *BotApp) playGame(gameID string) {
 				b.statsLock.Lock()
 				b.gamesPlayed++
 				botWon := (isWhite && state.Winner == "white") || (!isWhite && state.Winner == "black")
+				isDraw := (state.Winner == "")
 				if botWon {
 					b.wins++
-				} else if state.Winner != "" {
+				} else if !isDraw {
 					b.losses++
 				}
 				opponent := blackPlayer
@@ -726,29 +848,42 @@ func (b *BotApp) playGame(gameID string) {
 				b.lastOpp = opponent
 				b.statsLock.Unlock()
 
-				// Auto-aprendizado se o bot venceu!
+				// Mensagem de encerramento para humanos
+				if isHumanOpponent {
+					b.sendChatMessage(gameID, "player", fmt.Sprintf("Obrigado pela partida, %s! Foi uma honra jogar com você! 🤝", opponent))
+				}
+
+				// Auto-aprendizado contínuo (Vitórias E Derrotas!)
 				if b.cfg.AutoLearn {
 					if botWon {
 						log.Printf("🏆 [VITÓRIA] O bot venceu %s! Gravando aprendizado no banco MBVM-DB...", opponent)
 						b.learnFromVictory(latestMoves, isWhite, opponent, state.Status)
+					} else if !isDraw {
+						log.Printf("🧠 [DERROTA] O bot perdeu para %s. Analisando e aprendendo com a derrota no MBVM-DB...", opponent)
+						b.learnFromDefeat(latestMoves, isWhite, opponent, state.Status)
 					}
 				}
 				return
 			}
 
-			b.processTurn(gameID, isWhite, initialFen, latestMoves, &lastMoveCount)
+			myClockState := state.WTime
+			if !isWhite {
+				myClockState = state.BTime
+			}
+			b.processTurn(gameID, isWhite, initialFen, latestMoves, &lastMoveCount, myClockState)
 
 		case "chatLine":
 			sender, _ := generic["username"].(string)
 			text, _ := generic["text"].(string)
 			if sender != b.botName && sender != "lichess" {
 				log.Printf("💬 Chat [%s] %s: %s", gameID, sender, text)
+				b.handleChatCommand(gameID, sender, text)
 			}
 		}
 	}
 }
 
-func (b *BotApp) processTurn(gameID string, isWhite bool, initialFen, moves string, lastMoveCount *int) {
+func (b *BotApp) processTurn(gameID string, isWhite bool, initialFen, moves string, lastMoveCount *int, clockMs int64) {
 	moveList := strings.Fields(strings.TrimSpace(moves))
 	currentCount := len(moveList)
 
@@ -770,12 +905,69 @@ func (b *BotApp) processTurn(gameID string, isWhite bool, initialFen, moves stri
 		playerColor = "Pretas ⚫"
 	}
 
-	log.Printf("🤔 Lance %d (%s) - Calculando em modo 💀 %s...", turnNumber, playerColor, strings.ToUpper(b.cfg.Mode))
+	currentMode := b.getGameMode(gameID)
+	currentSkill := b.getGameSkill(gameID)
+	_ = b.engine.SetSkillLevel(currentSkill)
 
-	bestMove, eval, err := b.engine.GetBestMoveFromPosition(initialFen, moves, b.cfg.MoveTimeMs, b.cfg.Mode)
-	if err != nil {
-		log.Printf("❌ Erro da engine no jogo %s: %v", gameID, err)
-		return
+	// Estratégia de 3 Segundos: Força Bruta Monstro (Depth 26+) com relógio alto,
+	// adaptando a estratégia dinamicamente conforme o tempo diminui
+	calcTimeMs := 3000
+	if clockMs > 0 {
+		if clockMs > 90000 { // Mais de 1m30s no relógio
+			calcTimeMs = 3000 // 3.0s -> Profundidade Máxima de Supercomputador (Depth 26+)
+		} else if clockMs > 45000 { // 45s a 90s
+			calcTimeMs = 2000 // 2.0s -> Modo Forte (Depth 23-25)
+		} else if clockMs > 20000 { // 20s a 45s
+			calcTimeMs = 1000 // 1.0s -> Transição rápida
+		} else if clockMs > 10000 { // 10s a 20s
+			calcTimeMs = 450  // 0.45s -> Modo aceleração
+		} else { // Menos de 10s (aperto total de tempo)
+			calcTimeMs = 180  // 0.18s -> Blitz relâmpago anti-queda de tempo
+		}
+	}
+
+	log.Printf("🤔 Lance %d (%s) - Calculando com %dms (Relógio: %.1fs) em modo 💀 %s (Skill: %d)...",
+		turnNumber, playerColor, calcTimeMs, float64(clockMs)/1000.0, strings.ToUpper(currentMode), currentSkill)
+
+	var bestMove, eval string
+
+	// 1. Consulta o livro de aberturas e transições de mestres no MBVM-DB (0ms)
+	if currentCount <= 12 && b.db != nil {
+		prefix := strings.Join(moveList, "_")
+		if prefix == "" {
+			prefix = "start"
+		}
+		b.dbMu.Lock()
+		slice := b.db.ExtractSlice(prefix, 1)
+		b.dbMu.Unlock()
+
+		if len(slice.Symbols) > 0 {
+			for _, sym := range slice.Symbols {
+				if len(sym.OutgoingCalls) > 0 {
+					cand := sym.OutgoingCalls[0]
+					if parts := strings.Split(cand, "->"); len(parts) > 1 {
+						cand = strings.TrimSpace(parts[1])
+					}
+					cand = strings.TrimSpace(cand)
+					if isUCI(cand) {
+						bestMove = cand
+						eval = "🧠 MBVM-DB Livro Mestre (0ms)"
+						log.Printf("🧠 [LIVRO MBVM-DB] Lance mestre recuperado com 0ms: [%s] (%s)", bestMove, sym.Name)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Se não houver lance de livro mestre no MBVM-DB, calcula via Stockfish com o modo ativo
+	if bestMove == "" {
+		var err error
+		bestMove, eval, err = b.engine.GetBestMoveFromPosition(initialFen, moves, calcTimeMs, currentMode)
+		if err != nil {
+			log.Printf("❌ Erro da engine no jogo %s: %v", gameID, err)
+			return
+		}
 	}
 
 	b.statsLock.Lock()
@@ -791,6 +983,91 @@ func (b *BotApp) processTurn(gameID string, isWhite bool, initialFen, moves stri
 	} else {
 		log.Printf("⚡ Lance [%s] enviado com sucesso para %s!", bestMove, gameID)
 	}
+}
+
+func (b *BotApp) setGameMode(gameID, mode string) {
+	b.modeLock.Lock()
+	defer b.modeLock.Unlock()
+	b.gameModes[gameID] = mode
+}
+
+func (b *BotApp) getGameMode(gameID string) string {
+	b.modeLock.RLock()
+	defer b.modeLock.RUnlock()
+	if m, ok := b.gameModes[gameID]; ok && m != "" {
+		return m
+	}
+	return b.cfg.Mode
+}
+
+func (b *BotApp) setGameSkill(gameID string, skill int) {
+	b.modeLock.Lock()
+	defer b.modeLock.Unlock()
+	b.gameSkills[gameID] = skill
+}
+
+func (b *BotApp) getGameSkill(gameID string) int {
+	b.modeLock.RLock()
+	defer b.modeLock.RUnlock()
+	if s, ok := b.gameSkills[gameID]; ok && s >= 0 {
+		return s
+	}
+	return b.cfg.SkillLevel
+}
+
+func (b *BotApp) handleChatCommand(gameID, sender, text string) {
+	cmd := strings.ToLower(strings.TrimSpace(text))
+
+	switch {
+	case strings.Contains(cmd, "!tal") || cmd == "tal":
+		b.setGameMode(gameID, "tal")
+		b.sendChatMessage(gameID, "player", "⚔️ [ESTILO MIKHAIL TAL] Prepare-se para complicações táticas e sacrifícios agressivos! Boa sorte! 🔥")
+		log.Printf("🎯 Jogo %s: modo alterado para TAL a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!solido") || strings.Contains(cmd, "!karpov") || strings.Contains(cmd, "!petrosian") || cmd == "solido" || cmd == "karpov":
+		b.setGameMode(gameID, "solid")
+		b.sendChatMessage(gameID, "player", "🛡️ [ESTILO POSICIONAL SÓLIDO (KARPOV)] Foco em profilaxia, controle de casas fracas e finais técnicos. Bom jogo!")
+		log.Printf("🎯 Jogo %s: modo alterado para SÓLIDO a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!fischer") || strings.Contains(cmd, "!kingside") || cmd == "fischer":
+		b.setGameMode(gameID, "kingside")
+		b.sendChatMessage(gameID, "player", "🏹 [ESTILO BOBBY FISCHER] Pressão veloz, dinamismo e ataque direto na Ala do Rei!")
+		log.Printf("🎯 Jogo %s: modo alterado para FISCHER a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!berserk") || strings.Contains(cmd, "!ultra") || cmd == "berserk":
+		b.setGameMode(gameID, "berserk")
+		b.sendChatMessage(gameID, "player", "💀 [ESTILO BERSERK MÁXIMO] Ataque kamikaze total e caça implacável ao Rei ativados!")
+		log.Printf("🎯 Jogo %s: modo alterado para BERSERK a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!facil") || strings.Contains(cmd, "!easy") || cmd == "facil":
+		b.setGameSkill(gameID, 6)
+		_ = b.engine.SetSkillLevel(6)
+		b.sendChatMessage(gameID, "player", "🌱 [NÍVEL FÁCIL] Força ajustada para treino casual (~1500 ELO). Divirta-se!")
+		log.Printf("🎯 Jogo %s: nível alterado para FÁCIL (Skill 6) a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!medio") || strings.Contains(cmd, "!medium") || cmd == "medio":
+		b.setGameSkill(gameID, 12)
+		_ = b.engine.SetSkillLevel(12)
+		b.sendChatMessage(gameID, "player", "⚖️ [NÍVEL MÉDIO] Força ajustada para treino intermediário (~2000 ELO). Bom jogo!")
+		log.Printf("🎯 Jogo %s: nível alterado para MÉDIO (Skill 12) a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!dificil") || strings.Contains(cmd, "!hard") || cmd == "dificil":
+		b.setGameSkill(gameID, 20)
+		_ = b.engine.SetSkillLevel(20)
+		b.sendChatMessage(gameID, "player", "🔥 [NÍVEL DIFÍCIL] Stockfish NNUE em força máxima GM (+3500 ELO)!")
+		log.Printf("🎯 Jogo %s: nível alterado para DIFÍCIL (Skill 20) a pedido de %s", gameID, sender)
+
+	case strings.Contains(cmd, "!ajuda") || strings.Contains(cmd, "!help") || strings.Contains(cmd, "!estilos") || cmd == "ajuda" || cmd == "help":
+		b.sendChatMessage(gameID, "player", "Estilos: !tal, !solido, !karpov, !fischer, !berserk | Dificuldade: !facil, !medio, !dificil")
+	}
+}
+
+func isUCI(m string) bool {
+	if len(m) != 4 && len(m) != 5 {
+		return false
+	}
+	return m[0] >= 'a' && m[0] <= 'h' && m[1] >= '1' && m[1] <= '8' &&
+		m[2] >= 'a' && m[2] <= 'h' && m[3] >= '1' && m[3] <= '8'
 }
 
 func (b *BotApp) learnFromVictory(moves string, isWhite bool, opponent, status string) {
@@ -857,6 +1134,72 @@ func (b *BotApp) learnFromVictory(moves string, isWhite bool, opponent, status s
 		learned, b.db.TotalSymbols())
 }
 
+func (b *BotApp) learnFromDefeat(moves string, isWhite bool, opponent, status string) {
+	b.dbMu.Lock()
+	defer b.dbMu.Unlock()
+
+	moveList := strings.Fields(strings.TrimSpace(moves))
+	if len(moveList) < 2 || b.db == nil {
+		return
+	}
+
+	oppColor := "b"
+	whiteName := "kbelludoo (Bot)"
+	blackName := opponent
+	if !isWhite {
+		oppColor = "w"
+		whiteName = opponent
+		blackName = "kbelludoo (Bot)"
+	}
+
+	// 1. Registra a partida completa no histórico
+	gameItem := mbvmdb.ChessGameItem{
+		ID:        fmt.Sprintf("lichess_loss_%d", time.Now().Unix()),
+		White:     whiteName,
+		Black:     blackName,
+		Result:    "0-1",
+		Date:      time.Now().Format("2006.01.02"),
+		Moves:     moveList,
+		TimeClass: "lichess-live",
+	}
+	if !isWhite {
+		gameItem.Result = "1-0"
+	}
+	b.db.IngestChessGames([]mbvmdb.ChessGameItem{gameItem})
+
+	// 2. Aprende as respostas vitoriosas do oponente (técnicas de contra-ataque e punição)
+	learned := 0
+	for i := 0; i < len(moveList); i++ {
+		isOppTurn := (oppColor == "w" && i%2 == 0) || (oppColor == "b" && i%2 == 1)
+		if isOppTurn {
+			prefix := strings.Join(moveList[:i], "_")
+			winningMove := moveList[i]
+			cand := fmt.Sprintf("%s -> %s", prefix, winningMove)
+			if prefix == "" {
+				prefix = "start"
+			}
+
+			b.db.IngestChessOpenings([]mbvmdb.ChessOpeningItem{
+				{
+					ECO:           "DEF",
+					Name:          fmt.Sprintf("Defesa/Ataque de %s: %s", opponent, winningMove),
+					Moves:         prefix,
+					WhiteWin:      map[bool]float64{true: 100.0, false: 0.0}[oppColor == "w"],
+					Continuations: []string{winningMove, cand},
+					KeyThemes:     []string{fmt.Sprintf("Lição aprendida na derrota contra %s (%s)", opponent, status)},
+				},
+			})
+			learned++
+		}
+	}
+
+	b.db.CompileChessBytecode()
+	b.saveDB()
+
+	log.Printf("🧠 [APRENDIZADO DE DERROTA CONCLUÍDO] %d lances vencedores de %s assimilados no MBVM-DB! Grafo expandido para %d símbolos",
+		learned, opponent, b.db.TotalSymbols())
+}
+
 func (b *BotApp) saveDB() {
 	if b.db == nil || b.cfg.DBPath == "" {
 		return
@@ -902,8 +1245,15 @@ func (b *BotApp) sendChatMessage(gameID, room, text string) {
 	}
 }
 
-// challengeBot envia um desafio direto a outro bot no Lichess.
-func (b *BotApp) challengeBot(username string, limitSec, incSec int, rated bool) error {
+type BotTarget struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Rating   int    `json:"rating"`
+	PerfType string `json:"perf_type"`
+}
+
+// challengeBot envia um desafio direto a outro bot no Lichess e retorna o ID do desafio.
+func (b *BotApp) challengeBot(username string, limitSec, incSec int, rated bool) (string, error) {
 	endpoint := fmt.Sprintf("https://lichess.org/api/challenge/%s", url.PathEscape(username))
 	form := url.Values{}
 	form.Set("rated", strconv.FormatBool(rated))
@@ -914,28 +1264,50 @@ func (b *BotApp) challengeBot(username string, limitSec, incSec int, rated bool)
 
 	req, err := http.NewRequest("POST", endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return err
+		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+b.cfg.Token)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
-	return nil
+
+	var chResp struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(body, &chResp)
+	return chResp.ID, nil
 }
 
-// fetchOnlineBots descobre bots ativos no Lichess via NDJSON stream.
-func (b *BotApp) fetchOnlineBots(limit int) ([]string, error) {
+// cancelChallenge cancela um desafio pendente não aceito.
+func (b *BotApp) cancelChallenge(id string) {
+	if id == "" {
+		return
+	}
+	endpoint := fmt.Sprintf("https://lichess.org/api/challenge/%s/cancel", id)
+	req, err := http.NewRequest("POST", endpoint, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+b.cfg.Token)
+	resp, err := b.client.Do(req)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+}
+
+// fetchOnlineBots descobre bots ativos no Lichess e ordena por pontuação (mais pontos primeiro).
+func (b *BotApp) fetchOnlineBots(limit int) ([]BotTarget, error) {
 	if limit <= 0 {
-		limit = 20
+		limit = 100
 	}
 	endpoint := fmt.Sprintf("https://lichess.org/api/bot/online?nb=%d", limit)
 	req, err := http.NewRequest("GET", endpoint, nil)
@@ -954,37 +1326,88 @@ func (b *BotApp) fetchOnlineBots(limit int) ([]string, error) {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	var bots []string
+	type rawBot struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+		Perfs    struct {
+			Blitz struct {
+				Rating int `json:"rating"`
+			} `json:"blitz"`
+			Rapid struct {
+				Rating int `json:"rating"`
+			} `json:"rapid"`
+			Bullet struct {
+				Rating int `json:"rating"`
+			} `json:"bullet"`
+		} `json:"perfs"`
+		TosViolation bool `json:"tosViolation"`
+		Disabled     bool `json:"disabled"`
+	}
+
+	var bots []BotTarget
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		var botInfo struct {
-			ID       string `json:"id"`
-			Username string `json:"username"`
+		var r rawBot
+		if err := json.Unmarshal([]byte(line), &r); err != nil || r.Username == "" {
+			continue
 		}
-		if err := json.Unmarshal([]byte(line), &botInfo); err == nil && botInfo.Username != "" {
-			bots = append(bots, botInfo.Username)
+		if r.TosViolation || r.Disabled {
+			continue
 		}
+		// Ignora o próprio bot
+		if strings.EqualFold(r.ID, b.botID) || strings.EqualFold(r.Username, b.botName) {
+			continue
+		}
+		// Ignora bots com peças de vantagem / odds que requerem FEN específico
+		lowerName := strings.ToLower(r.Username)
+		if strings.Contains(lowerName, "odds") {
+			continue
+		}
+
+		// Prioriza rating blitz, depois rapid, depois bullet
+		rating := r.Perfs.Blitz.Rating
+		perfType := "Blitz"
+		if rating == 0 {
+			rating = r.Perfs.Rapid.Rating
+			perfType = "Rapid"
+		}
+		if rating == 0 {
+			rating = r.Perfs.Bullet.Rating
+			perfType = "Bullet"
+		}
+
+		bots = append(bots, BotTarget{
+			ID:       r.ID,
+			Username: r.Username,
+			Rating:   rating,
+			PerfType: perfType,
+		})
 	}
+
+	// Ordena do que tem MAIS PONTOS para o que tem menos pontos (Rating Decrescente)
+	sort.Slice(bots, func(i, j int) bool {
+		return bots[i].Rating > bots[j].Rating
+	})
+
 	return bots, scanner.Err()
 }
 
-// autoMatchmakerLoop executa o ciclo 24/7 de desafios contínuos contra outros bots.
+// autoMatchmakerLoop executa o ciclo 24/7 desafiando sempre os bots com mais pontos primeiro.
 func (b *BotApp) autoMatchmakerLoop() {
 	if !b.cfg.AutoMatch {
 		log.Println("ℹ️ Auto-Matchmaker 24/7 desativado nas configurações.")
 		return
 	}
 
-	log.Println("🤖 [MATCHMAKER 24/7] Iniciando motor autônomo de busca e desafios contra bots...")
-	time.Sleep(8 * time.Second)
+	log.Println("🤖 [MATCHMAKER 24/7] Iniciando motor autônomo focado nos BOTS COM MAIS PONTOS (Rating Alto)...")
+	time.Sleep(5 * time.Second)
 
-	// Bots prioritários e conhecidos por aceitar partidas blitz
-	priorityBots := []string{"maia1", "maia5", "maia9"}
-	priorityIndex := 0
+	// Mapa de cooldown: Username -> Expiração do bloqueio temporário
+	cooldowns := make(map[string]time.Time)
 
 	for {
 		b.activeLock.Lock()
@@ -992,55 +1415,77 @@ func (b *BotApp) autoMatchmakerLoop() {
 		b.activeLock.Unlock()
 
 		if activeCount > 0 {
-			// Já em partida ativa, aguarda
-			time.Sleep(5 * time.Second)
+			time.Sleep(4 * time.Second)
 			continue
 		}
 
-		targetBot := ""
-		// 1. Tenta pegar bots online dinamicamente
-		onlineBots, err := b.fetchOnlineBots(20)
-		if err == nil && len(onlineBots) > 0 {
-			for _, botName := range onlineBots {
-				if !strings.EqualFold(botName, b.botID) && !strings.EqualFold(botName, b.botName) {
-					// Dá preferência a bots do pool
-					for _, pb := range priorityBots {
-						if strings.EqualFold(botName, pb) {
-							targetBot = botName
-							break
-						}
-					}
-					if targetBot == "" && (strings.Contains(strings.ToLower(botName), "maia") || strings.Contains(strings.ToLower(botName), "bot")) {
-						targetBot = botName
-					}
-				}
-				if targetBot != "" {
-					break
-				}
+		now := time.Now()
+		// Limpa cooldowns expirados
+		for name, exp := range cooldowns {
+			if now.After(exp) {
+				delete(cooldowns, name)
 			}
 		}
 
-		// Fallback para lista prioritária
-		if targetBot == "" {
-			targetBot = priorityBots[priorityIndex%len(priorityBots)]
-			priorityIndex++
-		}
-
-		log.Printf("🎯 [MATCHMAKER 24/7] Enviando desafio Blitz (3m+2s) para bot: %s...", targetBot)
-		err = b.challengeBot(targetBot, 180, 2, false)
-		if err != nil {
-			log.Printf("⚠️ [MATCHMAKER 24/7] Erro ao desafiar %s: %v. Próximo em 8s...", targetBot, err)
-			priorityIndex++
+		// Busca até 100 bots online ordenados pelos que têm MAIS PONTOS
+		candidates, err := b.fetchOnlineBots(100)
+		if err != nil || len(candidates) == 0 {
+			log.Printf("⚠️ [MATCHMAKER] Erro ao listar bots online ou nenhum bot: %v. Tentando em 8s...", err)
 			time.Sleep(8 * time.Second)
 			continue
 		}
 
-		log.Printf("⏳ [MATCHMAKER 24/7] Desafio enviado para %s! Aguardando aceite...", targetBot)
+		var target *BotTarget
+		for i := range candidates {
+			cand := &candidates[i]
+			if exp, blocked := cooldowns[cand.Username]; blocked && now.Before(exp) {
+				continue
+			}
+			target = cand
+			break
+		}
 
-		// Aguarda até 30s verificando se a partida iniciou
+		if target == nil {
+			log.Println("ℹ️ [MATCHMAKER] Todos os bots de pontuação alta estão em cooldown temporário. Aguardando 12s...")
+			time.Sleep(12 * time.Second)
+			continue
+		}
+
+		rated := b.cfg.AcceptRated
+		log.Printf("🎯 [MATCHMAKER 24/7] Desafiando BOT COM MAIS PONTOS: %s (Rating: %d %s | Valendo Pontos: %v)...",
+			target.Username, target.Rating, target.PerfType, rated)
+
+		chID, err := b.challengeBot(target.Username, 180, 2, rated)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "100 games") || strings.Contains(errStr, "ratelimit") || strings.Contains(errStr, "rate limit") {
+				log.Printf("⚠️ [MATCHMAKER] %s atingiu o limite de partidas do Lichess. Cooldown de 1h.", target.Username)
+				cooldowns[target.Username] = time.Now().Add(1 * time.Hour)
+			} else if strings.Contains(errStr, "rated") && rated {
+				log.Printf("ℹ️ [MATCHMAKER] %s não joga valendo pontos (rated). Tentando casual em 2s...", target.Username)
+				if b.cfg.AcceptCasual {
+					chID, err = b.challengeBot(target.Username, 180, 2, false)
+				}
+				if err != nil {
+					log.Printf("⚠️ [MATCHMAKER] Falha ao desafiar %s mesmo casual: %v. Cooldown 5m.", target.Username, err)
+					cooldowns[target.Username] = time.Now().Add(5 * time.Minute)
+					time.Sleep(2 * time.Second)
+					continue
+				}
+			} else {
+				log.Printf("⚠️ [MATCHMAKER] Erro ao desafiar %s: %v. Cooldown 5m e avançando para o próximo bot...", target.Username, err)
+				cooldowns[target.Username] = time.Now().Add(5 * time.Minute)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+		}
+
+		log.Printf("⏳ [MATCHMAKER 24/7] Desafio enviado para %s (Rating: %d, ID: %s)! Aguardando aceite...", target.Username, target.Rating, chID)
+
+		// Aguarda até 20s verificando se a partida iniciou
 		started := false
-		for i := 0; i < 6; i++ {
-			time.Sleep(5 * time.Second)
+		for i := 0; i < 7; i++ {
+			time.Sleep(3 * time.Second)
 			b.activeLock.Lock()
 			if len(b.activeGame) > 0 {
 				started = true
@@ -1052,13 +1497,17 @@ func (b *BotApp) autoMatchmakerLoop() {
 		}
 
 		if !started {
-			log.Printf("ℹ️ [MATCHMAKER 24/7] %s não aceitou o desafio a tempo. Alternando bot...", targetBot)
-			priorityIndex++
+			log.Printf("ℹ️ [MATCHMAKER 24/7] %s não aceitou o desafio a tempo. Cancelando desafio e buscando próximo bot com mais pontos...", target.Username)
+			if chID != "" {
+				b.cancelChallenge(chID)
+			}
+			cooldowns[target.Username] = time.Now().Add(3 * time.Minute)
+			time.Sleep(2 * time.Second)
 		} else {
-			log.Printf("⚔️ [MATCHMAKER 24/7] Partida contra %s iniciada com sucesso!", targetBot)
+			log.Printf("⚔️ [MATCHMAKER 24/7] Partida contra %s (Rating: %d) iniciada com sucesso!", target.Username, target.Rating)
 			// Monitora até a partida terminar
 			for {
-				time.Sleep(4 * time.Second)
+				time.Sleep(3 * time.Second)
 				b.activeLock.Lock()
 				inGame := len(b.activeGame) > 0
 				b.activeLock.Unlock()
@@ -1066,8 +1515,8 @@ func (b *BotApp) autoMatchmakerLoop() {
 					break
 				}
 			}
-			log.Println("🧘 [MATCHMAKER 24/7] Partida encerrada! Cooldown de 8s antes do próximo desafio...")
-			time.Sleep(8 * time.Second)
+			log.Println("🧘 [MATCHMAKER 24/7] Partida encerrada! Cooldown de 5s antes de buscar o próximo bot com mais pontos...")
+			time.Sleep(5 * time.Second)
 		}
 	}
 }

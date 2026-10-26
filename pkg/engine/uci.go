@@ -218,6 +218,11 @@ func (e *UCIEngine) GetBestMoveFromPosition(initialFen string, moves string, mov
 		c1 = MoveCandidate{Move: defaultBestMove, Depth: defaultDepth}
 	}
 
+	// Aplica a seleção heurística de estilo conforme o modo configurado
+	if selMove, selEval, ok := e.applyModeSelection(initialFen, mode, candidates, c1); ok {
+		return selMove, selEval, nil
+	}
+
 	if c1.Move != "" {
 		if c1.IsMate {
 			eval = fmt.Sprintf("M%d (depth %d)", c1.MateVal, c1.Depth)
@@ -352,108 +357,9 @@ func (e *UCIEngine) GetBestMoveWithMode(fen string, moveTimeMs int, mode string)
 		c1 = MoveCandidate{Move: defaultBestMove, Depth: defaultDepth}
 	}
 
-	// Se o modo for "kingside" ou "kia" ou "kid" (Ataque pela Ala do Rei)
-	if (mode == "kingside" || mode == "kia" || mode == "kid") && len(candidates) > 1 && !c1.IsMate {
-		selected := c1
-		bestScore := calculateKingsideScore(fen, c1.Move)
-
-		for i := 2; i <= 4; i++ {
-			c, ok := candidates[i]
-			if !ok || len(c.Move) < 4 {
-				continue
-			}
-
-			if c.IsMate && c.MateVal > 0 {
-				selected = c
-				break
-			}
-
-			// Margem aceitável: até 60 centipeões do melhor lance técnico
-			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-60 {
-				ks := calculateKingsideScore(fen, c.Move)
-				if ks > bestScore+10 {
-					selected = c
-					bestScore = ks
-				}
-			}
-		}
-
-		if selected.Move != c1.Move {
-			evalStr := fmt.Sprintf("%+.2f (depth %d) [👑 Ala do Rei: Fischer/Kasparov]", float64(selected.ScoreCP)/100.0, selected.Depth)
-			return selected.Move, evalStr, nil
-		}
-	}
-
-	// Se o modo for "berserk" ou "ultra" (Altíssimo Risco / Kamikaze)
-	if (mode == "berserk" || mode == "ultra") && len(candidates) > 1 && !c1.IsMate {
-		selected := c1
-		bestAgg := calculateAggression(fen, c1.Move)
-
-		for i := 2; i <= 5; i++ {
-			c, ok := candidates[i]
-			if !ok || len(c.Move) < 4 {
-				continue
-			}
-
-			if c.IsMate && c.MateVal > 0 {
-				selected = c
-				break
-			}
-
-			// Margem de risco Berserk: tolera sacrifício de até 1.8 peões (-180cp) por iniciativa e ataque ao Rei
-			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-180 {
-				agg := calculateAggression(fen, c.Move)
-
-				// Penalidade para troca de Damas: Berserk quer as Damas no tabuleiro para atacar!
-				fromP := strings.ToLower(string(getPieceAt(fen, c.Move[0:2])))
-				toP := strings.ToLower(string(getPieceAt(fen, c.Move[2:4])))
-				if fromP == "q" && toP == "q" {
-					agg -= 60
-				}
-
-				if agg > bestAgg+10 {
-					selected = c
-					bestAgg = agg
-				}
-			}
-		}
-
-		if selected.Move != c1.Move {
-			evalStr := fmt.Sprintf("%+.2f (depth %d) [💀 Modo Berserk: Altíssimo Risco & Caos]", float64(selected.ScoreCP)/100.0, selected.Depth)
-			return selected.Move, evalStr, nil
-		}
-	}
-
-	// Se o modo for "tal" ou "risk", avalia os candidatos em busca do lance de ataque/risco moderado
-	if (mode == "tal" || mode == "risk") && len(candidates) > 1 && !c1.IsMate {
-		selected := c1
-		bestAgg := calculateAggression(fen, c1.Move)
-
-		for i := 2; i <= 3; i++ {
-			c, ok := candidates[i]
-			if !ok || len(c.Move) < 4 {
-				continue
-			}
-
-			if c.IsMate && c.MateVal > 0 {
-				selected = c
-				break
-			}
-
-			// Margem de risco tolerada: até 50 centipeões do melhor lance frio
-			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-50 {
-				agg := calculateAggression(fen, c.Move)
-				if agg > bestAgg+12 {
-					selected = c
-					bestAgg = agg
-				}
-			}
-		}
-
-		if selected.Move != c1.Move {
-			evalStr := fmt.Sprintf("%+.2f (depth %d) [🔥 Modo Mikhail Tal: Risco & Ataque]", float64(selected.ScoreCP)/100.0, selected.Depth)
-			return selected.Move, evalStr, nil
-		}
+	// Aplica a seleção heurística de estilo conforme o modo configurado
+	if selMove, selEval, ok := e.applyModeSelection(fen, mode, candidates, c1); ok {
+		return selMove, selEval, nil
 	}
 
 	if c1.Move != "" {
@@ -615,4 +521,132 @@ func (e *UCIEngine) Close() error {
 		_ = e.cmd.Process.Kill()
 	}
 	return nil
+}
+
+func (e *UCIEngine) applyModeSelection(fen, mode string, candidates map[int]MoveCandidate, c1 MoveCandidate) (string, string, bool) {
+	if len(candidates) <= 1 || c1.IsMate || c1.Move == "" {
+		return "", "", false
+	}
+
+	mode = strings.ToLower(strings.TrimSpace(mode))
+
+	// 1. Modo Fischer / Kasparov: Ataque à Ala do Rei ("kingside", "fischer", "kasparov", "kia", "kid")
+	if mode == "kingside" || mode == "fischer" || mode == "kasparov" || mode == "kia" || mode == "kid" {
+		selected := c1
+		bestScore := calculateKingsideScore(fen, c1.Move)
+
+		for i := 2; i <= 4; i++ {
+			c, ok := candidates[i]
+			if !ok || len(c.Move) < 4 {
+				continue
+			}
+			if c.IsMate && c.MateVal > 0 {
+				selected = c
+				break
+			}
+			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-60 {
+				ks := calculateKingsideScore(fen, c.Move)
+				if ks > bestScore+10 {
+					selected = c
+					bestScore = ks
+				}
+			}
+		}
+
+		if selected.Move != c1.Move {
+			evalStr := fmt.Sprintf("%+.2f (depth %d) [👑 Ala do Rei: Fischer/Kasparov]", float64(selected.ScoreCP)/100.0, selected.Depth)
+			return selected.Move, evalStr, true
+		}
+	}
+
+	// 2. Modo Berserk: Altíssimo Risco / Caos / Recusa troca de Damas ("berserk", "ultra")
+	if mode == "berserk" || mode == "ultra" || mode == "ataque" || mode == "attack" {
+		selected := c1
+		bestAgg := calculateAggression(fen, c1.Move)
+
+		for i := 2; i <= 5; i++ {
+			c, ok := candidates[i]
+			if !ok || len(c.Move) < 4 {
+				continue
+			}
+			if c.IsMate && c.MateVal > 0 {
+				selected = c
+				break
+			}
+			// Margem de risco Berserk: tolera sacrifício de até 1.8 peões (-180cp)
+			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-180 {
+				agg := calculateAggression(fen, c.Move)
+				fromP := strings.ToLower(string(getPieceAt(fen, c.Move[0:2])))
+				toP := strings.ToLower(string(getPieceAt(fen, c.Move[2:4])))
+				if fromP == "q" && toP == "q" {
+					agg -= 60
+				}
+				if agg > bestAgg+10 {
+					selected = c
+					bestAgg = agg
+				}
+			}
+		}
+
+		if selected.Move != c1.Move {
+			evalStr := fmt.Sprintf("%+.2f (depth %d) [💀 Modo Berserk: Caos & Ataque Total]", float64(selected.ScoreCP)/100.0, selected.Depth)
+			return selected.Move, evalStr, true
+		}
+	}
+
+	// 3. Modo Mikhail Tal: Risco tático moderado & complicações ("tal", "risk")
+	if mode == "tal" || mode == "risk" {
+		selected := c1
+		bestAgg := calculateAggression(fen, c1.Move)
+
+		for i := 2; i <= 3; i++ {
+			c, ok := candidates[i]
+			if !ok || len(c.Move) < 4 {
+				continue
+			}
+			if c.IsMate && c.MateVal > 0 {
+				selected = c
+				break
+			}
+			if !c.IsMate && c.ScoreCP >= c1.ScoreCP-60 {
+				agg := calculateAggression(fen, c.Move)
+				if agg > bestAgg+12 {
+					selected = c
+					bestAgg = agg
+				}
+			}
+		}
+
+		if selected.Move != c1.Move {
+			evalStr := fmt.Sprintf("%+.2f (depth %d) [🔥 Modo Mikhail Tal: Risco & Sacrifício]", float64(selected.ScoreCP)/100.0, selected.Depth)
+			return selected.Move, evalStr, true
+		}
+	}
+
+	// 4. Modo Sólido / Karpov: Jogo posicional e profilático ("solid", "karpov", "petrosian")
+	if mode == "solid" || mode == "karpov" || mode == "petrosian" {
+		selected := c1
+		bestSolid := -calculateAggression(fen, c1.Move)
+
+		for i := 2; i <= 3; i++ {
+			c, ok := candidates[i]
+			if !ok || len(c.Move) < 4 || c.IsMate {
+				continue
+			}
+			if c.ScoreCP >= c1.ScoreCP-15 {
+				solidScore := -calculateAggression(fen, c.Move)
+				if solidScore > bestSolid+8 {
+					selected = c
+					bestSolid = solidScore
+				}
+			}
+		}
+
+		if selected.Move != c1.Move {
+			evalStr := fmt.Sprintf("%+.2f (depth %d) [🛡️ Modo Sólido: Karpov/Petrosian]", float64(selected.ScoreCP)/100.0, selected.Depth)
+			return selected.Move, evalStr, true
+		}
+	}
+
+	return "", "", false
 }
