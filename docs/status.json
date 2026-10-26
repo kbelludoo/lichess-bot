@@ -2,19 +2,19 @@
   "active_games": 0,
   "bot_user": "anonimo",
   "dashboard": "https://lichess.org/@/kbelludoo",
-  "db_symbols": 10447,
+  "db_symbols": 10482,
   "game": "Lichess.org • Go + Stockfish NNUE",
   "games_played": 44,
   "idle_learner": {
     "current_source": "Lichess TV / Top GMs",
     "enabled": true,
-    "games_learned": 72,
+    "games_learned": 73,
     "is_idle": true,
-    "last_game_desc": "[Lichess TV (rapid)] azores2022 (2346) venceu mrgamerboyjacob (2425)",
-    "last_learned_at": "2026-10-25T23:57:45.389590821Z",
-    "moves_learned": 718,
+    "last_game_desc": "[Lichess TV (best)] MFishka (3332) venceu ManiacalZerker (3213)",
+    "last_learned_at": "2026-10-25T23:58:32.680921112Z",
+    "moves_learned": 728,
     "status": "🧠 Ocioso — Monitorando Lichess TV e Partidas de Grandes Mestres",
-    "total_symbols": 10447
+    "total_symbols": 10482
   },
   "key": "lichess",
   "last_eval": "M-1 (depth 245)",
@@ -26,8 +26,8 @@
   "name": "Lichess Bot (Berserk)",
   "online": true,
   "port": 3016,
-  "ram_mb": "35.33 MB",
+  "ram_mb": "35.68 MB",
   "title": "BOT",
-  "uptime_sec": 25608,
+  "uptime_sec": 25732,
   "wins": 12
 }
